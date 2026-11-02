@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Licensing Dashboard</title>
+    <style>
+        body { background-color: #030712; color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 16px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2937; padding-bottom: 16px; margin-bottom: 24px; }
+        h1 { font-size: 1.5rem; margin: 0; }
+        p { font-size: 0.75rem; color: #9ca3af; margin: 4px 0 0 0; }
+        .badge { padding: 4px 10px; font-size: 0.75rem; border-radius: 9999px; border: 1px solid; }
+        .badge-online { background-color: #064e3b; color: #34d399; border-color: #065f46; }
+        .badge-offline { background-color: #881337; color: #fb7185; border-color: #9f1239; }
+        .card { background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+        h2 { font-size: 1.1rem; margin-top: 0; margin-bottom: 12px; }
+        .form-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        @media(min-width: 640px) { .form-grid { grid-template-columns: 2fr 1fr 1fr; } }
+        .verify-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; }
+        input { background-color: #030712; border: 1px solid #1f2937; border-radius: 8px; padding: 10px; color: #fff; font-size: 0.875rem; outline: none; width: 100%; box-sizing: border-box; }
+        input:focus { border-color: #6366f1; }
+        button { background-color: #4f46e5; color: #fff; font-weight: 500; border: none; border-radius: 8px; padding: 10px 16px; cursor: pointer; font-size: 0.875rem; white-space: nowrap; }
+        button:hover { background-color: #4338ca; }
+        .result-box { margin-top: 12px; padding: 12px; background-color: #030712; border: 1px solid #312e81; border-radius: 8px; font-family: monospace; font-size: 0.75rem; color: #a5b4fc; word-break: break-all; display: none; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
+        th { background-color: #030712; color: #9ca3af; border-bottom: 1px solid #1f2937; padding: 10px; font-size: 0.75rem; text-transform: uppercase; }
+        td { padding: 12px 10px; border-bottom: 1px solid #1f2937; }
+        .status-active { color: #34d399; background: rgba(6,78,59,0.4); border: 1px solid #065f46; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; }
+        .status-revoked { color: #fb7185; background: rgba(136,19,55,0.4); border: 1px solid #9f1239; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; }
+        .btn-revoke { background: transparent; color: #fb7185; border: none; cursor: pointer; font-size: 0.75rem; padding: 0; text-decoration: underline; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .text-right { text-align: right; }
+        .text-muted { color: #9ca3af; font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Licensing Admin</h1>
+                <p>Termux Native Node.js & SQLite Engine</p>
+            </div>
+            <span id="server-status" class="badge badge-offline">Checking...</span>
+        </header>
+
+        <div class="card">
+            <h2>Generate New License</h2>
+            <form id="create-form" class="form-grid">
+                <input type="text" id="client_name" placeholder="Client Name / Company" required>
+                <input type="number" id="duration_days" placeholder="Duration (Days, blank = never)">
+                <button type="submit">Issue Key</button>
+            </form>
+            <div id="new-key-result" class="result-box"></div>
+        </div>
+
+        <div class="card">
+            <h2>Verify License Key</h2>
+            <form id="verify-form" class="verify-grid">
+                <input type="text" id="verify_key_input" placeholder="Paste UUID license key to verify..." required>
+                <button type="submit" style="background-color: #059669;">Test Verification</button>
+            </form>
+            <div id="verify-result" class="result-box"></div>
+        </div>
+
+        <div class="card">
+            <div class="flex-between" style="margin-bottom: 12px;">
+                <h2 style="margin:0;">Active & Revoked Keys</h2>
+                <button onclick="loadLicenses()" style="background:transparent; color:#818cf8; padding:0; font-size:0.75rem;">Refresh List</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Key</th>
+                            <th>Status</th>
+                            <th>Expires</th>
+                            <th class="text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="licenses-table-body">
+                        <tr><td colspan="5" style="text-align:center; color:#6b7280; padding:20px;">Loading keys...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function checkHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                const badge = document.getElementById('server-status');
+                if(data.status === 'healthy') {
+                    badge.textContent = 'System Online';
+                    badge.className = 'badge badge-online';
+                } else {
+                    badge.textContent = 'Degraded';
+                    badge.className = 'badge badge-offline';
+                }
+            } catch(e) {
+                const badge = document.getElementById('server-status');
+                badge.textContent = 'Offline';
+                badge.className = 'badge badge-offline';
+            }
+        }
+
+        async function loadLicenses() {
+            try {
+                const res = await fetch('/api/licenses');
+                const licenses = await res.json();
+                const tbody = document.getElementById('licenses-table-body');
+                tbody.innerHTML = '';
+                
+                if (licenses.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#6b7280; padding:20px;">No licenses generated yet.</td></tr>';
+                    return;
+                }
+
+                licenses.forEach(l => {
+                    const tr = document.createElement('tr');
+                    const statusClass = l.status === 'active' ? 'status-active' : 'status-revoked';
+                    tr.innerHTML = '<td><strong>' + l.client_name + '</strong></td>' +
+                                   '<td style="font-family:monospace; font-size:0.75rem; color:#9ca3af; cursor:pointer;" onclick="navigator.clipboard.writeText(\'' + l.key + '\'); alert(\'Key copied to clipboard!\');" title="Click to copy">' + l.key + '</td>' +
+                                   '<td><span class="' + statusClass + '">' + l.status + '</span></td>' +
+                                   '<td class="text-muted">' + (l.expires_at || 'Never') + '</td>' +
+                                   '<td class="text-right">' + 
+                                   (l.status === 'active' ? '<button class="btn-revoke" onclick="revokeKey(\'' + l.key + '\')">Revoke</button>' : '') + 
+                                   '</td>';
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Failed to load licenses', e);
+            }
+        }
+
+        document.getElementById('create-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const client_name = document.getElementById('client_name').value;
+            const duration_days = document.getElementById('duration_days').value;
+            
+            const payload = { client_name };
+            if (duration_days) payload.duration_days = Number(duration_days);
+
+            const res = await fetch('/licenses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            const resultBox = document.getElementById('new-key-result');
+            resultBox.style.display = 'block';
+            resultBox.textContent = 'Created Key: ' + data.key + ' (Expires: ' + (data.expires_at || 'Never') + ')';
+            
+            document.getElementById('client_name').value = '';
+            document.getElementById('duration_days').value = '';
+            loadLicenses();
+        });
+
+        document.getElementById('verify-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const key = document.getElementById('verify_key_input').value.trim();
+            const verifyBox = document.getElementById('verify-result');
+            verifyBox.style.display = 'block';
+            verifyBox.textContent = 'Verifying key...';
+
+            try {
+                const res = await fetch('/verify/' + key);
+                const data = await res.json();
+                verifyBox.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                verifyBox.textContent = 'Error: Failed to reach verification endpoint.';
+            }
+        });
+
+        async function revokeKey(key) {
+            if(!confirm('Are you sure you want to revoke this license?')) return;
+            await fetch('/revoke/' + key, { method: 'POST' });
+            loadLicenses();
+        }
+
+        checkHealth();
+        loadLicenses();
+    </script>
+</body>
+</html>

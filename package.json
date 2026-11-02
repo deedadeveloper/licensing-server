@@ -1,0 +1,7 @@
+{
+  "name": "licensing-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "SaaS licensing backend using native Node 26 SQLite"
+}
